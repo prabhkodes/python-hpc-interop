@@ -1,26 +1,122 @@
-# Python HPC
+# python
 
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![NumPy](https://img.shields.io/badge/NumPy-013243?style=flat-square&logo=numpy&logoColor=white)
-![CUDA](https://img.shields.io/badge/CUDA-76B900?style=flat-square&logo=nvidia&logoColor=white)
-![mpi4py](https://img.shields.io/badge/mpi4py-364d6e?style=flat-square&logoColor=white)
-![Numba](https://img.shields.io/badge/Numba-00A3E0?style=flat-square&logoColor=white)
-![CuPy](https://img.shields.io/badge/CuPy-76B900?style=flat-square&logo=nvidia&logoColor=white)
 ![pybind11](https://img.shields.io/badge/pybind11-00599C?style=flat-square&logo=cplusplus&logoColor=white)
+![mpi4py](https://img.shields.io/badge/mpi4py-364d6e?style=flat-square&logoColor=white)
+![CuPy](https://img.shields.io/badge/CuPy-76B900?style=flat-square&logo=nvidia&logoColor=white)
+![Numba](https://img.shields.io/badge/Numba-00A3E0?style=flat-square&logoColor=white)
+![SLURM](https://img.shields.io/badge/SLURM-46a2f1?style=flat-square&logoColor=white)
 
-Python implementations of parallel and GPU-accelerated HPC patterns. Covers distributed parallelism with `mpi4py`, JIT compilation with Numba, GPU arrays with CuPy, and calling optimised C++ solvers from Python via pybind11.
+How much performance does Python actually cost in HPC, and where does it stop mattering? Two stencil
+problems taken from a single Python process out to 64 MPI ranks and 64 GPUs, measured against the
+native C++ they wrap.
 
-## Projects
+| Project | Question | Implementations |
+|---|---|---|
+| [`pybind11-jacobi/`](pybind11-jacobi/) | What does driving a C++ solver from Python cost? | Serial C++ · MPI+OpenMP C++ · CuPy GPU — all called from Python |
+| [`game-of-life/`](game-of-life/) | Which Python parallelism actually helps a stencil? | NumPy vectorised · mpi4py distributed · Numba JIT/njit/stencil |
 
-### game_of_life
-Conway's Game of Life implemented three ways — NumPy serial, MPI distributed, and Numba JIT/NJIT/stencil benchmarks. Demonstrates how the same stencil problem scales from a single vectorised kernel to a distributed multi-process simulation.
+**What the runs showed**
 
-### pybind11_jacobi
-2D Jacobi heat diffusion solver built as a progression from serial C++ to distributed MPI+OpenMP to GPU (CuPy), with the C++ versions exposed to Python via pybind11. Includes strong scaling benchmarks across 1 to 16 nodes on Leonardo Booster.
+- **pybind11 overhead is 4–6%.** 13.18 s against native C++'s 12.64 s on one node — Python drives the
+  solver, C++ does the work, and the boundary is nearly free.
+- **The GPU advantage shrinks as you scale.** 8.4× at one node, 3.5× at sixteen. Communication catches
+  up with compute.
+- **CuPy on 4 GPUs beats 16 CPU nodes.** 1.57 s against 0.88 s at 64 ranks — one node of GPUs gets
+  within a factor of 2 of 64× the CPU hardware.
+- **Naive Python is not the baseline anyone should quote.** The interesting comparison is *vectorised*
+  or *compiled* Python against C++, and that gap is small.
+
+**Stack:** Python 3.11 · NumPy · pybind11 · mpi4py · CuPy · Numba · OpenMPI · OpenMP · SLURM
+
+**Where it ran:** Leonardo Booster at CINECA — 30,000² grid, 100 steps, 4 ranks per node, 8 threads per
+rank, one A100 per rank on the GPU runs.
+
+## pybind11 Jacobi — Python cost vs native C++
+
+Same solver, three back-ends, all invoked from a Python driver.
+
+| Nodes | Ranks | MPI + pybind11 | Native C++ hybrid `-O3` | Overhead |
+|---:|---:|---:|---:|---:|
+| 1 | 4 | 13.18 s | 12.64 s | 4.3% |
+| 4 | 16 | 3.82 s | 3.26 s | 17% |
+| 16 | 64 | 0.88 s | 0.83 s | 6.0% |
+
+→ **Python is the driver, not the bottleneck.** The C++ extension holds the grid, does the halo
+exchange and runs the stencil; Python calls one method per solve. The overhead is the call boundary,
+not the computation.
+
+![Strong scaling, all CPU implementations](pybind11-jacobi/parallel/results/all_correct.png)
+
+### GPU with CuPy
+
+| Nodes | Tasks / GPUs | CuPy | MPI + pybind11 (CPU) | GPU speedup |
+|---:|---:|---:|---:|---:|
+| 1 | 4 | 1.57 s | 13.18 s | **8.4×** |
+| 4 | 16 | 0.46 s | 3.82 s | 8.3× |
+| 8 | 32 | 0.30 s | 1.75 s | 5.8× |
+| 16 | 64 | 0.25 s | 0.88 s | 3.5× |
+
+- The grid lives on the device as a `cp.ndarray`; the stencil is array slicing applied in place
+- Each rank pins itself with `cp.cuda.Device(rank % 4)`
+- Halo exchange stages through **host** buffers rather than using CUDA-aware MPI
+
+→ **The speedup halves between 1 and 16 nodes.** Per-GPU work shrinks while the halo exchange cost
+stays fixed — and staging halos through the host makes that worse. CUDA-aware MPI, as used in
+[`jacobi-poisson-solver`](https://github.com/prabhkodes/jacobi-poisson-solver), is the fix.
+
+Full build commands and details in [`pybind11-jacobi/README.md`](pybind11-jacobi/README.md).
+
+## Game of Life — which Python parallelism helps
+
+| Implementation | Approach |
+|---|---|
+| [`serial.py`](game-of-life/src/serial.py) | All eight neighbour shifts via `np.roll`, one vectorised pass |
+| [`mpi.py`](game-of-life/src/mpi.py) | Row-wise decomposition, `Sendrecv` ghost rows, `Gather` per frame |
+| [`numba_bench.py`](game-of-life/src/numba_bench.py) | Five strategies benchmarked head to head |
+
+The Numba benchmark compares NumPy slicing, `@jit` loops, `@njit(parallel=True)` with `prange`,
+`@jit(forceobj=True)`, and the `@stencil` decorator on a 1000² grid for 100 steps — each with a warmup
+call before timing, since the first call pays compilation.
+
+<p align="center">
+  <img src="game-of-life/results/game_of_life_mpi.gif" width="420" alt="Game of Life, MPI distributed">
+</p>
+
+## Caveats
+
+| Caveat | Detail |
+|---|---|
+| **Timings are single runs** | No repeats or error bars; treat small differences as noise |
+| **GPU halos stage through the host** | Deliberate, to sidestep CUDA-aware MPI setup — but it costs, and it's part of why the GPU advantage falls off |
+| **Numba benchmark numbers aren't committed** | The script prints them; the plots in this repo are from the Jacobi runs |
+| **`numba.py` was renamed to `numba_bench.py`** | The original shadowed the `numba` package, so `python3 numba.py` failed with `ImportError: cannot import name 'jit' from 'numba'`. The documented command could never have worked |
+
+## Layout
+
+```
+pybind11-jacobi/
+  serial/       C++ CMesh + CSolver exposed via pybind11
+  parallel/     + MPI decomposition and OpenMP threading
+  gpu/          CuPy, one A100 per rank
+game-of-life/
+  src/          serial.py, mpi.py, numba_bench.py
+  results/      animations
+```
 
 ## Dependencies
 
-- Python 3.11+
-- `numpy`, `matplotlib`, `mpi4py`, `numba`, `cupy`
-- pybind11 (for jacobi serial/parallel)
-- OpenMPI
+```bash
+pip install numpy matplotlib mpi4py numba cupy pybind11 pillow
+```
+
+Plus OpenMPI and libomp for the compiled extensions.
+
+## Where this came from
+
+| | |
+|---|---|
+| Course | *P1.10 — Python for HPC*, MHPC, ICTP / SISSA Trieste, 2025–26 |
+| Cluster | Leonardo Booster, CINECA |
+| Related | The same Jacobi problem in native Fortran/C++ across four parallel models: [`jacobi-poisson-solver`](https://github.com/prabhkodes/jacobi-poisson-solver) |

@@ -27,7 +27,7 @@ mpirun -n 4 python3 mpi.py
 
 ![Game of Life — MPI](results/game_of_life_mpi.gif)
 
-### numba.py — JIT/NJIT/Stencil benchmarks
+### numba_bench.py — JIT/NJIT/Stencil benchmarks
 Benchmarks four evolution strategies on a 1000x1000 grid for 100 steps:
 
 | Implementation | Notes |
@@ -41,7 +41,7 @@ Benchmarks four evolution strategies on a 1000x1000 grid for 100 steps:
 Each variant includes a warmup call before timing.
 
 ```bash
-python3 numba.py
+python3 numba_bench.py
 ```
 
 ## Dependencies

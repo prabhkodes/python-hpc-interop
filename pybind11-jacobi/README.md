@@ -18,7 +18,7 @@ c++ -O3 -Wall -shared -std=c++11 -fPIC \
 
 **Run:**
 ```bash
-python3 main.py
+python3 run.py
 ```
 
 ---
@@ -45,7 +45,7 @@ mpicxx -O3 -Wall -shared -std=c++20 -fPIC \
 
 **Run:**
 ```bash
-mpirun -np 4 python3 main.py
+mpirun -np 4 python3 run.py
 ```
 
 **Strong scaling results (vs native hybrid C++):**
@@ -71,7 +71,7 @@ CuPy implementation — grid lives on GPU as `cp.ndarray`, stencil applied with 
 **Run:**
 ```bash
 # Local
-mpirun -n 4 python3 src/main_gpu.py
+mpirun -n 4 python3 src/run_gpu.py
 
 # Cluster
 sbatch batch.sh
