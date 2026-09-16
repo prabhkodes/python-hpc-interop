@@ -50,13 +50,16 @@ mpirun -np 4 python3 run.py
 
 **Strong scaling results (vs native hybrid C++):**
 
-| Nodes | MPI + pybind | C++ hybrid (O3) |
-|---|---|---|
-| 1 | 13.18 s | 12.64 s |
-| 4 | 3.82 s | 3.26 s |
-| 16 | 0.88 s | 0.83 s |
+| Nodes | MPI + pybind | C++ hybrid (O3) | Overhead |
+|---|---|---|---|
+| 1 | 13.18 s | 12.64 s | 4.3% |
+| 4 | 3.82 s | 3.26 s | 17% |
+| 16 | 0.88 s | 0.83 s | 6.0% |
 
-pybind overhead is minimal — performance tracks native C++ closely. `plot.py` generates the bar chart comparison in `results/`.
+pybind overhead is small but not negligible, and not uniform: 4–17% across the three points, with the
+worst case in the middle. In absolute terms it is ~0.55 s at 1 and 4 nodes and 0.05 s at 16, which a
+fixed per-call cost doesn't explain. These are single runs with no repeats, so treat the spread as a
+range rather than a trend. `plot.py` generates the bar chart comparison in `results/`.
 
 ![Strong Scaling — pybind only](parallel/results/jacobi.png)
 
@@ -86,7 +89,15 @@ sbatch batch.sh
 | 8 | 32 | 0.30 s | 1.75 s |
 | 16 | 64 | 0.25 s | 0.88 s |
 
-GPU is ~8x faster than the CPU pybind version at 1 node, converging as node count increases due to MPI communication overhead. `plot.py` plots all three implementations on a log scale.
+GPU is ~8.4x faster than the CPU pybind version at 1 node, falling to 3.5x at 16 as per-GPU work
+shrinks while the halo exchange doesn't. Both columns use the same node count, and on Leonardo Booster
+4 ranks x 8 threads is a full node's cores against that node's 4 A100s, so the per-node comparison is
+fair.
+
+Two things the table does not say: the halos stage through host buffers rather than using CUDA-aware
+MPI, so these are a floor on GPU performance rather than the achievable number; and at 16 nodes the
+CPU side (0.88 s) is *faster* than 4 GPUs on one node (1.57 s), so GPUs here win per node, not
+outright. `plot.py` plots all three implementations on a log scale.
 
 ---
 

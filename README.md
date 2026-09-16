@@ -19,12 +19,14 @@ native C++ they wrap.
 
 **What the runs showed**
 
-- **pybind11 overhead is 4–6%.** 13.18 s against native C++'s 12.64 s on one node — Python drives the
-  solver, C++ does the work, and the boundary is nearly free.
+- **pybind11 overhead is 4–17%**, and it doesn't fall cleanly with scale: 4.3% at one node, **17% at
+  four**, 6.0% at sixteen. Single runs, so the middle point may be noise — but it is the measured
+  spread, and quoting only the 4–6% ends of it would be picking.
 - **The GPU advantage shrinks as you scale.** 8.4× at one node, 3.5× at sixteen. Communication catches
   up with compute.
-- **CuPy on 4 GPUs beats 16 CPU nodes.** 1.57 s against 0.88 s at 64 ranks — one node of GPUs gets
-  within a factor of 2 of 64× the CPU hardware.
+- **One node of GPUs gets within ~1.8× of sixteen CPU nodes.** 4 A100s take 1.57 s; 64 CPU ranks
+  across 16 nodes take 0.88 s. The GPUs do *not* win that comparison — they lose it by 1.8× while
+  using a sixteenth of the nodes.
 - **Naive Python is not the baseline anyone should quote.** The interesting comparison is *vectorised*
   or *compiled* Python against C++, and that gap is small.
 
@@ -44,8 +46,12 @@ Same solver, three back-ends, all invoked from a Python driver.
 | 16 | 64 | 0.88 s | 0.83 s | 6.0% |
 
 → **Python is the driver, not the bottleneck.** The C++ extension holds the grid, does the halo
-exchange and runs the stencil; Python calls one method per solve. The overhead is the call boundary,
-not the computation.
+exchange and runs the stencil; Python calls one method per solve.
+
+The absolute overhead is ~0.55 s at 1 and 4 nodes but only 0.05 s at 16, which is not what a fixed
+per-call cost looks like — a call-boundary explanation predicts a roughly constant absolute cost, so
+something else is moving. With single runs and no repeats there isn't enough evidence to say what.
+Treat the percentages as a range, not a trend.
 
 ![Strong scaling, all CPU implementations](pybind11-jacobi/parallel/results/all_correct.png)
 
@@ -83,6 +89,24 @@ call before timing, since the first call pays compilation.
 <p align="center">
   <img src="game-of-life/results/game_of_life_mpi.gif" width="420" alt="Game of Life, MPI distributed">
 </p>
+
+## Known issues and corrections
+
+Re-read against its own tables in **September 2026**:
+
+| # | Found | Issue | Status |
+|---|---|---|---|
+| 1 | Sep 2026 | **"CuPy on 4 GPUs beats 16 CPU nodes"** contradicted the table directly below it — 1.57 s is slower than 0.88 s, not faster | **Corrected.** Restated as "within ~1.8×, on a sixteenth of the nodes" |
+| 2 | Sep 2026 | **"pybind11 overhead is 4–6%"** quoted the two lowest of three measurements and skipped the 17% at 4 nodes | **Corrected** to the full 4–17% range |
+| 3 | Sep 2026 | The overhead is ~0.55 s absolute at 1 and 4 nodes but 0.05 s at 16 — inconsistent with the "fixed call-boundary cost" explanation the page gave | **Flagged, unexplained.** Needs repeated runs to tell noise from a real effect |
+
+**Still open**
+
+- **No repeats anywhere in this repo.** Every number is a single run, which is why issue 3 can't be
+  resolved from the committed data. Re-running each configuration 5× would settle it
+- **The GPU halo path stages through host buffers**, so the CuPy numbers are a floor, not the
+  achievable GPU result. CUDA-aware MPI is the fix and was never wired up here
+- **Numba benchmark output isn't committed** — the script prints to stdout and nothing captured it
 
 ## Caveats
 
