@@ -90,23 +90,19 @@ call before timing, since the first call pays compilation.
   <img src="game-of-life/results/game_of_life_mpi.gif" width="420" alt="Game of Life, MPI distributed">
 </p>
 
-## Known issues and corrections
+## Corrections
 
-Re-read against its own tables in **September 2026**:
+I re-read this page against its own tables in September 2026 and fixed two claims that didn't match
+the numbers underneath them.
 
-| # | Found | Issue | Status |
-|---|---|---|---|
-| 1 | Sep 2026 | **"CuPy on 4 GPUs beats 16 CPU nodes"** contradicted the table directly below it — 1.57 s is slower than 0.88 s, not faster | **Corrected.** Restated as "within ~1.8×, on a sixteenth of the nodes" |
-| 2 | Sep 2026 | **"pybind11 overhead is 4–6%"** quoted the two lowest of three measurements and skipped the 17% at 4 nodes | **Corrected** to the full 4–17% range |
-| 3 | Sep 2026 | The overhead is ~0.55 s absolute at 1 and 4 nodes but 0.05 s at 16 — inconsistent with the "fixed call-boundary cost" explanation the page gave | **Flagged, unexplained.** Needs repeated runs to tell noise from a real effect |
+| Claim | What the table actually shows | Now reads |
+|---|---|---|
+| "CuPy on 4 GPUs beats 16 CPU nodes" | 1.57 s against 0.88 s — the GPUs are slower | Within ~1.8×, on a sixteenth of the nodes |
+| "pybind11 overhead is 4–6%" | 4.3%, 17%, 6.0% across the three points | The full 4–17% range |
 
-**Still open**
-
-- **No repeats anywhere in this repo.** Every number is a single run, which is why issue 3 can't be
-  resolved from the committed data. Re-running each configuration 5× would settle it
-- **The GPU halo path stages through host buffers**, so the CuPy numbers are a floor, not the
-  achievable GPU result. CUDA-aware MPI is the fix and was never wired up here
-- **Numba benchmark output isn't committed** — the script prints to stdout and nothing captured it
+I also noticed the overhead is ~0.55 s in absolute terms at 1 and 4 nodes but 0.05 s at 16, which a
+fixed per-call cost doesn't explain. Since these are single runs, the committed data can't separate
+noise from a real effect, so the page states the range and stops there rather than inventing a trend.
 
 ## Caveats
 
